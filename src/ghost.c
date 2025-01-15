@@ -1,13 +1,14 @@
-#include <signal.h>
-
 #include "include/ghost.h"
 #include "include/frames.h"
 
 struct termios orig_termios;
 volatile sig_atomic_t last_frame_index = 0;
 
-char **current_buffer;
-char **next_buffer;
+char *buffer;
+char formatted_frames
+    [FRAME_COUNT]
+    [IMAGE_HEIGHT]
+    [MAX_LINE_LENGTH * 2];
 
 int term_rows, term_cols;
 int start_row, start_col;
@@ -68,24 +69,7 @@ void move_cursor(int row, int col) {
     *ptr++ = 'H';
     *ptr = '\0';
     
-    fputs(buffer, stdout);
-}
-
-char **create_buffer(int height, int width) {
-    char **buffer = malloc(height * sizeof(char *));
-    for (int i = 0; i < height; i++) {
-        buffer[i] = malloc(width);
-        memset(buffer[i], ' ', width - 1);
-        buffer[i][width - 1] = '\0';
-    }
-    return buffer;
-}
-
-void free_buffer(char **buffer, int height) {
-    for (int i = 0; i < height; i++) {
-        free(buffer[i]);
-    }
-    free(buffer);
+    write(STDOUT_FILENO, buffer, ptr - buffer);
 }
 
 void clear_line_to_end(void) {
@@ -124,8 +108,6 @@ void restore_terminal(void) {
 }
 
 void handle_resize(int sig) {
-    int old_cols = term_cols;
-
     update_dimensions();
 
     if (term_cols < 115 || term_rows < 56) {
@@ -133,13 +115,6 @@ void handle_resize(int sig) {
         restore_terminal();
         disable_raw_mode();
         exit(EXIT_FAILURE);
-    }
-
-    if (term_cols != old_cols) {
-        free_buffer(current_buffer, IMAGE_HEIGHT);
-        free_buffer(next_buffer, IMAGE_HEIGHT);
-        current_buffer = create_buffer(IMAGE_HEIGHT, term_cols + 1);
-        next_buffer = create_buffer(IMAGE_HEIGHT, term_cols + 1);
     }
 
     clear_screen();
@@ -152,11 +127,36 @@ void handle_sigint(int sig) {
         clear_line_to_end();
     }
 
-    free_buffer(current_buffer, IMAGE_HEIGHT);
-    free_buffer(next_buffer, IMAGE_HEIGHT);
-
+    free(buffer);
     restore_terminal();
     exit(EXIT_SUCCESS);
+}
+
+void preformat_frames(void) {
+    for (size_t frame = 0; frame < FRAME_COUNT; frame++) {
+        for (int i = 0; i < IMAGE_HEIGHT; i++) {
+            const char *line = animation_frames[frame][i];
+            char *output = formatted_frames[frame][i];
+
+            const char *ptr = line;
+            while (*ptr) {
+                if (strncmp(ptr, "<color>", 7) == 0) {
+                    memcpy(output, COLOR_BLUE, strlen(COLOR_BLUE));
+                    output += strlen(COLOR_BLUE);
+                    ptr += 7;
+                }
+                else if (strncmp(ptr, "</color>", 8) == 0) {
+                    memcpy(output, COLOR_RESET, strlen(COLOR_RESET));
+                    output += strlen(COLOR_RESET);
+                    ptr += 8;
+                }
+                else {
+                    *output++ = *ptr++;
+                }
+            }
+            *output = '\0';
+        }
+    }
 }
 
 int main(void) {
@@ -180,60 +180,33 @@ int main(void) {
     prepare_terminal();
     setvbuf(stdout, NULL, _IOFBF, 0);
 
-    current_buffer = create_buffer(IMAGE_HEIGHT, term_cols + 1);
-    next_buffer = create_buffer(IMAGE_HEIGHT, term_cols + 1);
-
+    buffer = malloc(IMAGE_HEIGHT * (term_cols + 1));
     update_dimensions();
+    preformat_frames();
 
     long long start_time = get_microseconds();
+    long long next_frame_time = start_time + MICROS_PER_FRAME;
 
     while (1) {
-        long long elapsed = get_microseconds() - start_time;
-        size_t frame_index = (elapsed / MICROS_PER_FRAME) % FRAME_COUNT;
+        long long current_time = get_microseconds();
+        size_t frame_index = (current_time - start_time) / MICROS_PER_FRAME % FRAME_COUNT;
 
         if (frame_index != last_frame_index) {
             for (int i = 0; i < IMAGE_HEIGHT; i++) {
-                memset(next_buffer[i], ' ', term_cols);
-                next_buffer[i][term_cols] = '\0';
+                char *line = buffer + i * (term_cols + 1);
+                memset(line, ' ', term_cols);
+                line[term_cols] = '\0';
+
+                memcpy(line + start_col, 
+                    formatted_frames[frame_index][i], 
+                    strlen(formatted_frames[frame_index][i])
+                );
+
+                move_cursor(start_row + i, 1);
+                write(STDOUT_FILENO, line, term_cols);
+                clear_line_to_end();
             }
 
-            for (int i = 0; i < IMAGE_HEIGHT; i++) {
-                const char *line = animation_frames[frame_index][i];
-                char formatted_line[MAX_LINE_LENGTH * 2] = {0};
-                char *output = formatted_line;
-
-                const char *ptr = line;
-                while (*ptr) {
-                    if (strncmp(ptr, "<color>", 7) == 0) {
-                        strcpy(output, COLOR_BLUE);
-                        output += strlen(COLOR_BLUE);
-                        ptr += 7;
-                    }
-                    else if (strncmp(ptr, "</color>", 8) == 0) {
-                        strcpy(output, COLOR_RESET);
-                        output += strlen(COLOR_RESET);
-                        ptr += 8;
-                    }
-                    else {
-                        *output++ = *ptr++;
-                    }
-                }
-                *output = '\0';
-
-                char *buffer_ptr = next_buffer[i] + start_col;
-                strcpy(buffer_ptr, formatted_line);
-            }
-
-            for (int i = 0; i < IMAGE_HEIGHT; i++) {
-                if (strcmp(current_buffer[i], next_buffer[i]) != 0) {
-                    move_cursor(start_row + i, 1);
-                    printf("%s", next_buffer[i]);
-                    clear_line_to_end();
-                    strcpy(current_buffer[i], next_buffer[i]);
-                }
-            }
-
-            fflush(stdout);
             last_frame_index = frame_index;
         }
 
@@ -243,7 +216,12 @@ int main(void) {
                 break;
         }
 
-        nanosleep(&frame_ts, NULL);
+        long long sleep_time = next_frame_time - get_microseconds();
+        if (sleep_time > 0) {
+            struct timespec ts = {0, sleep_time * 1000};
+            nanosleep(&ts, NULL);
+        }
+        next_frame_time += MICROS_PER_FRAME;
     }
 
     for (int i = 0; i < IMAGE_HEIGHT; i++) {
@@ -251,9 +229,7 @@ int main(void) {
         clear_line_to_end();
     }
 
-    free_buffer(current_buffer, IMAGE_HEIGHT);
-    free_buffer(next_buffer, IMAGE_HEIGHT);
-
+    free(buffer);
     restore_terminal();
     return EXIT_SUCCESS;
 }

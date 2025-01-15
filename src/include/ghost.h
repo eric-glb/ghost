@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <termios.h>
@@ -40,6 +41,7 @@ void prepare_terminal(void);
 void restore_terminal(void);
 void handle_resize(int sig);
 void handle_sigint(int sig);
+void preformat_frames(void);
 
 struct termios orig_termios;
 

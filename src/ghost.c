@@ -49,26 +49,26 @@ int kbhit(void) {
 }
 
 void move_cursor(int row, int col) {
-  char buffer[32];
-  char *ptr = buffer;
-  
-  *ptr++ = '\x1b';
-  *ptr++ = '[';
-  
-  if (row >= 100) *ptr++ = (row / 100) + '0';
-  if (row >= 10) *ptr++ = ((row / 10) % 10) + '0';
-  *ptr++ = (row % 10) + '0';
-  
-  *ptr++ = ';';
-  
-  if (col >= 100) *ptr++ = (col / 100) + '0';
-  if (col >= 10) *ptr++ = ((col / 10) % 10) + '0';
-  *ptr++ = (col % 10) + '0';
-  
-  *ptr++ = 'H';
-  *ptr = '\0';
-  
-  fputs(buffer, stdout);
+    char buffer[32];
+    char *ptr = buffer;
+    
+    *ptr++ = '\x1b';
+    *ptr++ = '[';
+    
+    if (row >= 100) *ptr++ = (row / 100) + '0';
+    if (row >= 10) *ptr++ = ((row / 10) % 10) + '0';
+    *ptr++ = (row % 10) + '0';
+    
+    *ptr++ = ';';
+    
+    if (col >= 100) *ptr++ = (col / 100) + '0';
+    if (col >= 10) *ptr++ = ((col / 10) % 10) + '0';
+    *ptr++ = (col % 10) + '0';
+    
+    *ptr++ = 'H';
+    *ptr = '\0';
+    
+    fputs(buffer, stdout);
 }
 
 char **create_buffer(int height, int width) {

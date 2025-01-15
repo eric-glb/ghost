@@ -8,7 +8,7 @@ volatile sig_atomic_t resize_needed = 0;
 int term_rows, term_cols;
 int start_row, start_col;
 
-long long get_microseconds() {
+long long get_microseconds(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (long long)ts.tv_sec * 1000000LL + ts.tv_nsec / 1000;
@@ -21,27 +21,27 @@ void get_terminal_size(int *rows, int *cols) {
     *cols = w.ws_col;
 }
 
-void enable_raw_mode() {
+void enable_raw_mode(void) {
     tcgetattr(STDIN_FILENO, &orig_termios);
     struct termios raw = orig_termios;
     raw.c_lflag &= ~(ECHO | ICANON);
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
-void disable_raw_mode() {
+void disable_raw_mode(void) {
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
 }
 
-int kbhit() {
+int kbhit(void) {
     int oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
     fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
     int ch = getchar();
     fcntl(STDIN_FILENO, F_SETFL, oldf);
     if (ch != EOF) {
         ungetc(ch, stdin);
-        return 1;
+        return EXIT_FAILURE;
     }
-    return 0;
+    return EXIT_SUCCESS;
 }
 
 void move_cursor(int row, int col) {
@@ -65,7 +65,7 @@ void free_buffer(char **buffer, int height) {
     free(buffer);
 }
 
-void clear_line_to_end() {
+void clear_line_to_end(void) {
     printf("%s[K", ESC);
 }
 
@@ -73,20 +73,20 @@ void handle_resize(int sig) {
     resize_needed = 1;
 }
 
-void update_dimensions() {
+void update_dimensions(void) {
     get_terminal_size(&term_rows, &term_cols);
 
     start_row = (term_rows - IMAGE_HEIGHT) / 2;
     start_col = (term_cols - IMAGE_WIDTH) / 2;
 }
 
-void clear_screen() {
+void clear_screen(void) {
     printf("%s[2J", ESC); // clear entire screen
     printf("%s[H", ESC);  // move cursor to home position
     fflush(stdout);
 }
 
-int main() {
+int main(void) {
     struct sigaction sa;
     memset(&sa, 0, sizeof(struct sigaction));
     sa.sa_handler = handle_resize;
@@ -99,7 +99,7 @@ int main() {
             "required: %dx%d, Current: %dx%d\n",
             IMAGE_WIDTH + 8, IMAGE_HEIGHT + 8, term_cols, term_rows
         );
-        return 1;
+        return EXIT_FAILURE;
     }
 
     enable_raw_mode();
@@ -215,5 +215,5 @@ int main() {
     printf("%s[?25h", ESC);   // show cursor
     printf("%s[?1049l", ESC); // main screen
     disable_raw_mode();
-    return 0;
+    return EXIT_SUCCESS;
 }

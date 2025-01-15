@@ -4,7 +4,7 @@
 #include "include/frames.h"
 
 struct termios orig_termios;
-volatile sig_atomic_t resize_needed = 0;
+volatile sig_atomic_t last_frame_index = 0;
 
 char **current_buffer;
 char **next_buffer;
@@ -49,7 +49,26 @@ int kbhit(void) {
 }
 
 void move_cursor(int row, int col) {
-    printf("%s[%d;%dH", ESC, row, col);
+  char buffer[32];
+  char *ptr = buffer;
+  
+  *ptr++ = '\x1b';
+  *ptr++ = '[';
+  
+  if (row >= 100) *ptr++ = (row / 100) + '0';
+  if (row >= 10) *ptr++ = ((row / 10) % 10) + '0';
+  *ptr++ = (row % 10) + '0';
+  
+  *ptr++ = ';';
+  
+  if (col >= 100) *ptr++ = (col / 100) + '0';
+  if (col >= 10) *ptr++ = ((col / 10) % 10) + '0';
+  *ptr++ = (col % 10) + '0';
+  
+  *ptr++ = 'H';
+  *ptr = '\0';
+  
+  fputs(buffer, stdout);
 }
 
 char **create_buffer(int height, int width) {
@@ -70,30 +89,61 @@ void free_buffer(char **buffer, int height) {
 }
 
 void clear_line_to_end(void) {
-    printf("%s[K", ESC);
-}
-
-void handle_resize(int sig) {
-    resize_needed = 1;
+    CSI(ERASE_LINE);
 }
 
 void update_dimensions(void) {
     get_terminal_size(&term_rows, &term_cols);
 
-    start_row = (term_rows - IMAGE_HEIGHT) / 2;
-    start_col = (term_cols - IMAGE_WIDTH) / 2;
+    int vertical_padding = (term_rows - IMAGE_HEIGHT) / 2;
+    int horizontal_padding = (term_cols - IMAGE_WIDTH) / 2;
+
+    start_row = (vertical_padding >= 0) ? vertical_padding : 0;
+    start_col = (horizontal_padding >= 0) ? horizontal_padding : 0;
 }
 
 void clear_screen(void) {
-    printf("%s[2J", ESC); // clear entire screen
-    printf("%s[H", ESC);  // move cursor to home position
+    CSI(CLEAR_SCREEN);
+    CSI(MOVE_CURSOR_HOME);
+    fflush(stdout);
+}
+
+void prepare_terminal(void) {
+    enable_raw_mode();
+    CSI(ALTERNATE_SCREEN);
+    CSI(CLEAR_SCREEN);
+    CSI(CURSOR_HIDE);
     fflush(stdout);
 }
 
 void restore_terminal(void) {
-    printf("%s[?25h", ESC);   // show cursor
-    printf("%s[?1049l", ESC); // main screen
+    CSI(CURSOR_SHOW);
+    CSI(MAIN_SCREEN);
     disable_raw_mode();
+    fflush(stdout);
+}
+
+void handle_resize(int sig) {
+    int old_cols = term_cols;
+
+    update_dimensions();
+
+    if (term_rows < IMAGE_HEIGHT || term_cols < IMAGE_WIDTH) {
+        clear_screen();
+        restore_terminal();
+        disable_raw_mode();
+        exit(EXIT_FAILURE);
+    }
+
+    if (term_cols != old_cols) {
+        free_buffer(current_buffer, IMAGE_HEIGHT);
+        free_buffer(next_buffer, IMAGE_HEIGHT);
+        current_buffer = create_buffer(IMAGE_HEIGHT, term_cols + 1);
+        next_buffer = create_buffer(IMAGE_HEIGHT, term_cols + 1);
+    }
+
+    clear_screen();
+    last_frame_index = -1;
 }
 
 void handle_sigint(int sig) {
@@ -118,21 +168,16 @@ int main(void) {
     signal(SIGINT, handle_sigint);
 
     get_terminal_size(&term_rows, &term_cols);
-    if (term_rows < IMAGE_HEIGHT + 8 || term_cols < IMAGE_WIDTH) {
+    if (term_rows < IMAGE_HEIGHT || term_cols < IMAGE_WIDTH) {
         fprintf(stderr,
             "Terminal size too small. Minimum "
             "required: %dx%d, Current: %dx%d\n",
-            IMAGE_WIDTH + 8, IMAGE_HEIGHT + 8, term_cols, term_rows
+            IMAGE_WIDTH, IMAGE_HEIGHT, term_cols, term_rows
         );
         return EXIT_FAILURE;
     }
 
-    enable_raw_mode();
-    printf("%s[?1049h", ESC); // alternate screen
-    printf("%s[2J", ESC);     // clear screen
-    printf("%s[?25l", ESC);   // hide cursor
-    fflush(stdout);
-
+    prepare_terminal();
     setvbuf(stdout, NULL, _IOFBF, 0);
 
     current_buffer = create_buffer(IMAGE_HEIGHT, term_cols + 1);
@@ -141,35 +186,8 @@ int main(void) {
     update_dimensions();
 
     long long start_time = get_microseconds();
-    size_t last_frame_index = 0;
 
     while (1) {
-        if (resize_needed) {
-            int old_cols = term_cols;
-
-            update_dimensions();
-
-            if (term_rows < IMAGE_HEIGHT + 8 || term_cols < IMAGE_WIDTH) {
-                printf("%s[2J", ESC);     // clear screen
-                printf("%s[H", ESC);      // move to home position
-                printf("%s[?25h", ESC);   // show cursor
-                printf("%s[?1049l", ESC); // main screen
-                disable_raw_mode();
-                exit(EXIT_FAILURE);
-            }
-
-            if (term_cols != old_cols) {
-                free_buffer(current_buffer, IMAGE_HEIGHT);
-                free_buffer(next_buffer, IMAGE_HEIGHT);
-                current_buffer = create_buffer(IMAGE_HEIGHT, term_cols + 1);
-                next_buffer = create_buffer(IMAGE_HEIGHT, term_cols + 1);
-            }
-
-            clear_screen();
-            last_frame_index = -1;
-            resize_needed = 0;
-        }
-
         long long elapsed = get_microseconds() - start_time;
         size_t frame_index = (elapsed / MICROS_PER_FRAME) % FRAME_COUNT;
 
@@ -225,7 +243,7 @@ int main(void) {
                 break;
         }
 
-        usleep(MICROS_PER_FRAME / 2);
+        nanosleep(&frame_ts, NULL);
     }
 
     for (int i = 0; i < IMAGE_HEIGHT; i++) {

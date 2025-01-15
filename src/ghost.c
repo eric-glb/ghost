@@ -38,38 +38,55 @@ void disable_raw_mode(void) {
 }
 
 int kbhit(void) {
+    static struct termios oldt, newt;
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+
     int oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
     fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
+
     int ch = getchar();
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
     fcntl(STDIN_FILENO, F_SETFL, oldf);
+
     if (ch != EOF) {
         ungetc(ch, stdin);
         return EXIT_FAILURE;
     }
+
     return EXIT_SUCCESS;
 }
 
 void move_cursor(int row, int col) {
-    char buffer[32];
+    static char buffer[16];
+    static int last_row = -1, last_col = -1;
+
+    if (row == last_row && col == last_col) return;
+
     char *ptr = buffer;
-    
     *ptr++ = '\x1b';
     *ptr++ = '[';
-    
-    if (row >= 100) *ptr++ = (row / 100) + '0';
-    if (row >= 10) *ptr++ = ((row / 10) % 10) + '0';
-    *ptr++ = (row % 10) + '0';
-    
+
+    if (row >= 100) *ptr++ = '0' + (row / 100);
+    if (row >= 10)  *ptr++ = '0' + ((row / 10) % 10);
+    *ptr++ = '0' + (row % 10);
+
     *ptr++ = ';';
-    
-    if (col >= 100) *ptr++ = (col / 100) + '0';
-    if (col >= 10) *ptr++ = ((col / 10) % 10) + '0';
-    *ptr++ = (col % 10) + '0';
-    
+
+    if (col >= 100) *ptr++ = '0' + (col / 100);
+    if (col >= 10)  *ptr++ = '0' + ((col / 10) % 10);
+    *ptr++ = '0' + (col % 10);
+
     *ptr++ = 'H';
     *ptr = '\0';
-    
+
     write(STDOUT_FILENO, buffer, ptr - buffer);
+
+    last_row = row;
+    last_col = col;
 }
 
 void clear_line_to_end(void) {
@@ -79,11 +96,11 @@ void clear_line_to_end(void) {
 void update_dimensions(void) {
     get_terminal_size(&term_rows, &term_cols);
 
-    int vertical_padding = (term_rows - IMAGE_HEIGHT) / 2;
-    int horizontal_padding = (term_cols - IMAGE_WIDTH) / 2;
+    start_row = (term_rows - IMAGE_HEIGHT) / 2;
+    start_col = (term_cols - IMAGE_WIDTH) / 2;
 
-    start_row = (vertical_padding >= 0) ? vertical_padding : 0;
-    start_col = (horizontal_padding >= 0) ? horizontal_padding : 0;
+    if (start_row < 0) start_row = 0;
+    if (start_col < 0) start_col = 0;
 }
 
 void clear_screen(void) {
@@ -138,20 +155,17 @@ void preformat_frames(void) {
             const char *line = animation_frames[frame][i];
             char *output = formatted_frames[frame][i];
 
-            const char *ptr = line;
-            while (*ptr) {
-                if (strncmp(ptr, "<color>", 7) == 0) {
+            while (*line) {
+                if (strncmp(line, "<color>", 7) == 0) {
                     memcpy(output, COLOR_BLUE, strlen(COLOR_BLUE));
                     output += strlen(COLOR_BLUE);
-                    ptr += 7;
-                }
-                else if (strncmp(ptr, "</color>", 8) == 0) {
+                    line += 7;
+                } else if (strncmp(line, "</color>", 8) == 0) {
                     memcpy(output, COLOR_RESET, strlen(COLOR_RESET));
                     output += strlen(COLOR_RESET);
-                    ptr += 8;
-                }
-                else {
-                    *output++ = *ptr++;
+                    line += 8;
+                } else {
+                    *output++ = *line++;
                 }
             }
             *output = '\0';

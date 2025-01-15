@@ -13,11 +13,9 @@
 
 #define MAX_LINE_LENGTH 256
 #define MICROS_PER_FRAME 30000
-#define CSI(str) fputs(str, stdout)
 
 #define COLOR_RESET "\x1b[0m"
 #define COLOR_BLUE "\x1b[34m"
-
 #define CURSOR_SHOW "\x1b[?25h"
 #define CURSOR_HIDE "\x1b[?25l"
 #define CLEAR_SCREEN "\x1b[2J"
@@ -26,14 +24,14 @@
 #define ALTERNATE_SCREEN "\x1b[?1049h"
 #define MAIN_SCREEN "\x1b[?1049l"
 
+#define CSI(code) write(STDOUT_FILENO, code, sizeof("\x1b[" code) - 1)
+
 long long get_microseconds(void);
 void get_terminal_size(int *rows, int *cols);
 void enable_raw_mode(void);
 void disable_raw_mode(void);
 int kbhit(void);
 void move_cursor(int row, int col);
-char **create_buffer(int height, int width);
-void free_buffer(char **buffer, int height);
 void clear_line_to_end(void);
 void update_dimensions(void);
 void clear_screen(void);

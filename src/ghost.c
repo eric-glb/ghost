@@ -128,7 +128,7 @@ void handle_resize(int sig) {
 
     update_dimensions();
 
-    if (term_rows < IMAGE_HEIGHT || term_cols < IMAGE_WIDTH) {
+    if (term_cols < 115 || term_rows < 56) {
         clear_screen();
         restore_terminal();
         disable_raw_mode();
@@ -168,11 +168,11 @@ int main(void) {
     signal(SIGINT, handle_sigint);
 
     get_terminal_size(&term_rows, &term_cols);
-    if (term_rows < IMAGE_HEIGHT || term_cols < IMAGE_WIDTH) {
+    if (term_cols < 115 || term_rows < 56) {
         fprintf(stderr,
             "Terminal size too small. Minimum "
             "required: %dx%d, Current: %dx%d\n",
-            IMAGE_WIDTH, IMAGE_HEIGHT, term_cols, term_rows
+            115, 56, term_cols, term_rows
         );
         return EXIT_FAILURE;
     }

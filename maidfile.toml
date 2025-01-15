@@ -1,0 +1,21 @@
+[env]
+in = "src/ghost.c src/frames.c"
+bin = "bin"
+out = "ghost"
+args = "-O3 -march=native -flto -ffast-math -std=c23"
+
+[project]
+name = "ghost"
+version = "0.0.1"
+
+[tasks]
+clean.script = ["rm -rf %{env.bin}",  "mkdir %{env.bin}"]
+build.script = "clang %{env.args} %{env.in} -o %{env.bin}/%{env.out}"
+
+[tasks.build.cache]
+path = "src"
+target = ["bin/ghost"]
+
+[tasks.run]
+depends = ["clean", "build"]
+script = "./%{env.bin}/%{env.out}"

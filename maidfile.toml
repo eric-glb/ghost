@@ -1,8 +1,9 @@
 [env]
 in = "src/ghost.c src/frames.c"
-bin = "bin"
 out = "ghost"
-args = "-O3 -march=native -flto -ffast-math -std=c23"
+bin = "bin"
+ver = "-std=c99"
+args = "-O3 -march=native -flto -ffast-math"
 
 [project]
 name = "ghost"
@@ -10,7 +11,7 @@ version = "0.0.1"
 
 [tasks]
 clean.script = ["rm -rf %{env.bin}",  "mkdir %{env.bin}"]
-build.script = "clang %{env.args} %{env.in} -o %{env.bin}/%{env.out}"
+build.script = "clang %{env.args} %{env.ver} %{env.in} -o %{env.bin}/%{env.out}"
 
 [tasks.build.cache]
 path = "src"

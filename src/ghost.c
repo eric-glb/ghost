@@ -5,6 +5,10 @@
 
 struct termios orig_termios;
 volatile sig_atomic_t resize_needed = 0;
+
+char **current_buffer;
+char **next_buffer;
+
 int term_rows, term_cols;
 int start_row, start_col;
 
@@ -86,11 +90,32 @@ void clear_screen(void) {
     fflush(stdout);
 }
 
+void restore_terminal(void) {
+    printf("%s[?25h", ESC);   // show cursor
+    printf("%s[?1049l", ESC); // main screen
+    disable_raw_mode();
+}
+
+void handle_sigint(int sig) {
+    for (int i = 0; i < IMAGE_HEIGHT; i++) {
+        move_cursor(start_row + i, 1);
+        clear_line_to_end();
+    }
+
+    free_buffer(current_buffer, IMAGE_HEIGHT);
+    free_buffer(next_buffer, IMAGE_HEIGHT);
+
+    restore_terminal();
+    exit(EXIT_SUCCESS);
+}
+
 int main(void) {
     struct sigaction sa;
     memset(&sa, 0, sizeof(struct sigaction));
     sa.sa_handler = handle_resize;
+    
     sigaction(SIGWINCH, &sa, NULL);
+    signal(SIGINT, handle_sigint);
 
     get_terminal_size(&term_rows, &term_cols);
     if (term_rows < IMAGE_HEIGHT + 8 || term_cols < IMAGE_WIDTH) {
@@ -110,8 +135,8 @@ int main(void) {
 
     setvbuf(stdout, NULL, _IOFBF, 0);
 
-    char **current_buffer = create_buffer(IMAGE_HEIGHT, term_cols + 1);
-    char **next_buffer = create_buffer(IMAGE_HEIGHT, term_cols + 1);
+    current_buffer = create_buffer(IMAGE_HEIGHT, term_cols + 1);
+    next_buffer = create_buffer(IMAGE_HEIGHT, term_cols + 1);
 
     update_dimensions();
 
@@ -120,7 +145,6 @@ int main(void) {
 
     while (1) {
         if (resize_needed) {
-            int old_rows = term_rows;
             int old_cols = term_cols;
 
             update_dimensions();
@@ -131,7 +155,7 @@ int main(void) {
                 printf("%s[?25h", ESC);   // show cursor
                 printf("%s[?1049l", ESC); // main screen
                 disable_raw_mode();
-                exit(1);
+                exit(EXIT_FAILURE);
             }
 
             if (term_cols != old_cols) {
@@ -212,8 +236,6 @@ int main(void) {
     free_buffer(current_buffer, IMAGE_HEIGHT);
     free_buffer(next_buffer, IMAGE_HEIGHT);
 
-    printf("%s[?25h", ESC);   // show cursor
-    printf("%s[?1049l", ESC); // main screen
-    disable_raw_mode();
+    restore_terminal();
     return EXIT_SUCCESS;
 }
